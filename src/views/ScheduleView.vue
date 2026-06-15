@@ -104,7 +104,7 @@ function switchPeriod(period: TimePeriod) {
     </section>
 
     <footer class="schedule-action">
-      <button type="button">确认约课</button>
+      <RouterLink to="/payment">确认约课</RouterLink>
     </footer>
   </main>
 </template>
@@ -272,9 +272,12 @@ function switchPeriod(period: TimePeriod) {
   background: rgba(255, 255, 255, 0.96);
   padding: 16px 16px calc(16px + var(--safe-bottom));
 
-  button {
+  a {
+    display: flex;
     width: 100%;
     min-height: 56px;
+    align-items: center;
+    justify-content: center;
     border-radius: 10px;
     background: linear-gradient(135deg, #4d8cff 0%, #1759ee 100%);
     color: #fff;
