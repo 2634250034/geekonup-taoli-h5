@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import aiIcon from '@/assets/image/ai-icon.svg'
+import avatarImage from '@/assets/image/avatar.png'
+import starIcon from '@/assets/image/star.svg'
 import SectionCard from '@/components/SectionCard.vue'
 import TeacherProfileCard from '@/components/TeacherProfileCard.vue'
 import { detailTeacher } from '@/data/teachers'
@@ -14,6 +17,50 @@ const teacher = computed(() => detailTeacher)
 
 const certificateItems = Array.from({ length: 6 }, (_, index) => index)
 const feedbackItems = Array.from({ length: 4 }, (_, index) => index)
+const overallRating = '4.7'
+const ratingStars = Array.from({ length: 5 }, (_, index) => index)
+const ratingMetrics = [
+  { label: '专业度', value: '4.6' },
+  { label: '教学风格', value: '4.2' },
+  { label: '互动表现', value: '4.1' },
+]
+const reviewSummary =
+  '综合用户的评价，该课程讲师的上课效果好，同学们对知识学得快，掌握得牢。不仅如此，还十分的耐心细致，上课过程中能够照顾理解慢的学生，综合调整课程的进度。'
+const studentReviews = [
+  {
+    id: 1,
+    name: '用户名',
+    score: '4.8',
+    time: '评价时间',
+    content:
+      '评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价',
+    anonymous: false,
+  },
+  {
+    id: 2,
+    name: '匿名同学',
+    score: '4.8',
+    time: '评价时间',
+    content: '评价评价评价评价',
+    anonymous: true,
+  },
+  {
+    id: 3,
+    name: '匿名同学',
+    score: '4.8',
+    time: '评价时间',
+    content: '评价评价评价评价',
+    anonymous: true,
+  },
+  {
+    id: 4,
+    name: '用户名',
+    score: '4.8',
+    time: '评价时间',
+    content: '评价评价评价评价',
+    anonymous: false,
+  },
+]
 
 function handleTabClick(tab: DetailTab) {
   if (tab === '可上课时间') {
@@ -26,7 +73,7 @@ function handleTabClick(tab: DetailTab) {
 </script>
 
 <template>
-  <main class="page detail-page">
+  <main class="page detail-page" :class="{ 'is-review-tab': activeTab === '学生评价' }">
     <nav class="detail-tabs" aria-label="老师详情">
       <button
         v-for="tab in tabs"
@@ -40,9 +87,9 @@ function handleTabClick(tab: DetailTab) {
     </nav>
 
     <div class="detail-page__content">
-      <TeacherProfileCard :teacher="teacher" />
-
       <template v-if="activeTab === '老师介绍'">
+        <TeacherProfileCard :teacher="teacher" />
+
         <SectionCard title="可授课学科">
           <div class="subject-list">
             <span v-for="subject in teacher.subjects" :key="subject">{{ subject }}</span>
@@ -89,22 +136,74 @@ function handleTabClick(tab: DetailTab) {
       </template>
 
       <template v-else-if="activeTab === '学生评价'">
-        <SectionCard title="学员反馈">
-          <div class="review-list">
-            <article>
-              <strong>学习体验很好</strong>
-              <p>老师讲解很细，会根据我的薄弱点安排练习，口语表达明显更顺了。</p>
-            </article>
-            <article>
-              <strong>课程节奏清晰</strong>
-              <p>每节课都有明确目标，课后反馈也很具体，适合备考阶段持续跟进。</p>
+        <section class="review-overview" aria-label="学生评价概览">
+          <div class="review-overview__score">
+            <strong>{{ overallRating }}</strong>
+            <div class="review-overview__stars" aria-label="五星评价">
+              <img
+                v-for="star in ratingStars"
+                :key="star"
+                :src="starIcon"
+                alt=""
+                aria-hidden="true"
+              />
+            </div>
+          </div>
+
+          <dl class="review-overview__metrics">
+            <div v-for="metric in ratingMetrics" :key="metric.label">
+              <dt>{{ metric.label }}</dt>
+              <dd>{{ metric.value }}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="ai-summary-card" aria-labelledby="ai-summary-title">
+          <h2 id="ai-summary-title">
+            <img :src="aiIcon" alt="" aria-hidden="true" />
+            <span style="">AI总结：</span>
+          </h2>
+          <p>{{ reviewSummary }}</p>
+        </section>
+
+        <section class="student-review-section" aria-labelledby="student-review-title">
+          <h2 id="student-review-title">学生评价（12）</h2>
+
+          <div class="student-review-list">
+            <article v-for="review in studentReviews" :key="review.id" class="student-review-item">
+              <div
+                class="student-review-item__avatar"
+                :class="{ 'is-anonymous': review.anonymous }"
+              >
+                <img :src="review.anonymous ? aiIcon : avatarImage" :alt="review.name" />
+              </div>
+
+              <div class="student-review-item__body">
+                <header>
+                  <div>
+                    <h3>{{ review.name }}</h3>
+                    <p>
+                      <img :src="starIcon" alt="" aria-hidden="true" />
+                      {{ review.score }}
+                    </p>
+                  </div>
+                  <time>{{ review.time }}</time>
+                </header>
+
+                <p class="student-review-item__content">{{ review.content }}</p>
+              </div>
             </article>
           </div>
-        </SectionCard>
+
+          <button class="review-more" type="button">
+            更多
+            <span aria-hidden="true"></span>
+          </button>
+        </section>
       </template>
     </div>
 
-    <footer class="detail-action">
+    <footer v-if="activeTab === '老师介绍'" class="detail-action">
       <RouterLink to="/schedule">选择预约时间</RouterLink>
     </footer>
   </main>
@@ -114,6 +213,11 @@ function handleTabClick(tab: DetailTab) {
 .detail-page {
   padding-bottom: calc(92px + var(--safe-bottom));
   background: var(--color-background);
+}
+
+.detail-page.is-review-tab {
+  padding-bottom: calc(32px + var(--safe-bottom));
+  background: #fff;
 }
 
 .detail-tabs {
@@ -135,7 +239,7 @@ function handleTabClick(tab: DetailTab) {
   }
 
   .is-active {
-    color: #071c40;
+    color: var(--color-primary);
     font-weight: 600;
 
     &::after {
@@ -145,7 +249,7 @@ function handleTabClick(tab: DetailTab) {
       width: 24px;
       height: 3px;
       border-radius: 999px;
-      background: #071c40;
+      background: var(--color-primary);
       content: '';
       transform: translateX(-50%);
     }
@@ -156,6 +260,11 @@ function handleTabClick(tab: DetailTab) {
   display: grid;
   gap: 12px;
   padding: 12px;
+}
+
+.is-review-tab .detail-page__content {
+  gap: 0;
+  padding: 0 12px 24px;
 }
 
 .subject-list {
@@ -230,30 +339,6 @@ function handleTabClick(tab: DetailTab) {
   }
 }
 
-.review-list {
-  display: grid;
-  gap: 12px;
-
-  article {
-    border-radius: 10px;
-    background: var(--color-surface-muted);
-    padding: 14px;
-  }
-
-  strong {
-    color: #071c40;
-    font-size: 16px;
-    font-weight: 600;
-  }
-
-  p {
-    margin-top: 6px;
-    color: var(--color-text-secondary);
-    font-size: 15px;
-    line-height: 26px;
-  }
-}
-
 .detail-action {
   position: fixed;
   right: 0;
@@ -274,6 +359,235 @@ function handleTabClick(tab: DetailTab) {
     color: #fff;
     font-size: 18px;
     font-weight: 600;
+  }
+}
+
+.review-overview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  padding: 24px 12px 28px;
+  background: #fff;
+}
+
+.review-overview__score {
+  flex: 0 0 auto;
+
+  strong {
+    display: block;
+    color: #ff7e1c;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 34px;
+  }
+}
+
+.review-overview__stars {
+  display: flex;
+  gap: 3px;
+  margin-top: 7px;
+
+  img {
+    width: 13px;
+    height: 13px;
+  }
+}
+
+.review-overview__metrics {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+
+  div {
+    display: grid;
+    min-width: 0;
+    justify-items: center;
+    gap: 4px;
+    padding: 0 10px;
+
+    & + div {
+      border-left: 1px solid #f0f2f6;
+    }
+  }
+
+  dt {
+    color: #a7adba;
+    font-size: 12px;
+    line-height: 18px;
+    white-space: nowrap;
+  }
+
+  dd {
+    color: #071c40;
+    font-size: 17px;
+    font-weight: 600;
+    line-height: 24px;
+  }
+}
+
+.ai-summary-card {
+  border-radius: 12px;
+  padding: 18px 16px 20px;
+  background: linear-gradient(180deg, #fff0ff 0%, #fff 100%);
+  box-shadow: 0 10px 24px rgba(119, 83, 207, 0.08);
+
+  h2 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 22px;
+    /* 🔴 以下是新增的字体渐变核心样式 */
+    background: linear-gradient(112deg, #5990ff -4.87%, #ff59c2 89.35%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+
+    /* 🔴 必须确保这个属性宽度跟着文字走，否则渐变会拉得太长导致粉色断层 */
+    width: max-content;
+  }
+
+  img {
+    width: 20px;
+    height: 20px;
+  }
+
+  p {
+    margin-top: 14px;
+    color: #697283;
+    font-size: 15px;
+    line-height: 28px;
+    overflow-wrap: anywhere;
+  }
+}
+
+.student-review-section {
+  margin-top: 28px;
+  background: #fff;
+
+  > h2 {
+    color: #071c40;
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 28px;
+  }
+}
+
+.student-review-list {
+  margin-top: 18px;
+}
+
+.student-review-item {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 12px;
+
+  & + & {
+    margin-top: 16px;
+  }
+}
+
+.student-review-item__avatar {
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #f4f5f8;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  &.is-anonymous {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    img {
+      width: 28px;
+      height: 28px;
+      opacity: 0.42;
+      filter: grayscale(1);
+    }
+  }
+}
+
+.student-review-item__body {
+  min-width: 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #eef1f5;
+
+  header {
+    display: flex;
+    min-width: 0;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  h3 {
+    overflow: hidden;
+    color: #071c40;
+    font-size: 17px;
+    font-weight: 500;
+    line-height: 24px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  header p {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 4px;
+    color: #ff7e1c;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+
+    img {
+      width: 14px;
+      height: 14px;
+    }
+  }
+
+  time {
+    flex: 0 0 auto;
+    color: #a7adba;
+    font-size: 14px;
+    line-height: 22px;
+  }
+}
+
+.student-review-item__content {
+  margin-top: 18px;
+  color: #697283;
+  font-size: 17px;
+  line-height: 31px;
+  overflow-wrap: anywhere;
+}
+
+.review-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 44px;
+  margin: 4px auto 0;
+  color: #697283;
+  font-size: 13px;
+  line-height: 20px;
+
+  span {
+    width: 8px;
+    height: 8px;
+    border-right: 1px solid currentColor;
+    border-bottom: 1px solid currentColor;
+    transform: translateY(-2px) rotate(45deg);
   }
 }
 </style>

@@ -10,7 +10,6 @@
 a {
   text-decoration: none;
   color: var(--color-primary);
-  -webkit-tap-highlight-color: transparent;
 }
 
 button,
@@ -20,6 +19,33 @@ a {
     background-color 0.2s ease,
     border-color 0.2s ease,
     opacity 0.2s ease;
+}
+
+button,
+a,
+label,
+input,
+textarea,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a,
+label {
+  touch-action: manipulation;
+}
+
+button:focus,
+a:focus,
+label:focus-within {
+  outline: none;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid rgba(29, 92, 240, 0.24);
+  outline-offset: 2px;
 }
 
 button:active,
