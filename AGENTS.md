@@ -42,6 +42,7 @@ Keep the product experience focused, fast, and mobile-first. Avoid adding infras
 - Prefer scoped component styles unless a style is intentionally global.
 - Use semantic HTML where practical.
 - Design mobile-first, then adapt to larger screens if needed.
+- All H5 pages must render at 100% viewport width without horizontal scrolling. The app should only scroll vertically; constrain wide content, wrap text, or use internal clipped/scroll-contained regions when necessary.
 - Use flex/grid layouts for structure.
 - Keep spacing, typography, and states consistent.
 - Use `#1D5CF0` as the primary theme color. Prefer centralizing it as a Less variable or CSS custom property before repeated use.
