@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import alipayIcon from '@/assets/image/alipay.svg'
 import avatarImage from '@/assets/image/avatar.png'
 import goldBadgeIcon from '@/assets/image/gold-badge-icon.svg'
@@ -8,8 +9,10 @@ import { detailTeacher, recommendedTeachers } from '@/data/teachers'
 
 type PaymentMethod = 'alipay' | 'wechat'
 
+const router = useRouter()
 const teacher = computed(() => recommendedTeachers[0] ?? detailTeacher)
 const selectedMethod = ref<PaymentMethod>('alipay')
+const isPaying = ref(false)
 
 const paymentMethods: Array<{
   id: PaymentMethod
@@ -39,6 +42,18 @@ const bookingInfo = [
     value: '日常口语',
   },
 ]
+
+function handlePay() {
+  if (isPaying.value) {
+    return
+  }
+
+  isPaying.value = true
+
+  window.setTimeout(() => {
+    router.push('/payment/result')
+  }, 1000)
+}
 </script>
 
 <template>
@@ -105,6 +120,7 @@ const bookingInfo = [
             type="radio"
             name="payment-method"
             :value="method.id"
+            :disabled="isPaying"
           />
           <span class="payment-method__check" aria-hidden="true"></span>
         </label>
@@ -117,8 +133,17 @@ const bookingInfo = [
         <p>15分钟内未支付，订单将自动取消</p>
       </div>
 
-      <RouterLink to="/payment/result">立即支付</RouterLink>
+      <button type="button" :disabled="isPaying" @click="handlePay">立即支付</button>
     </footer>
+
+    <Teleport to="body">
+      <div v-if="isPaying" class="payment-loading" role="status" aria-live="polite">
+        <div class="payment-loading__dialog">
+          <span class="payment-loading__spinner" aria-hidden="true"></span>
+          <p>支付中</p>
+        </div>
+      </div>
+    </Teleport>
   </main>
 </template>
 
@@ -408,7 +433,7 @@ const bookingInfo = [
   }
 }
 
-.payment-action a {
+.payment-action button {
   display: flex;
   width: 128px;
   min-height: 56px;
@@ -420,5 +445,51 @@ const bookingInfo = [
   color: #fff;
   font-size: 18px;
   font-weight: 600;
+
+  &:disabled {
+    opacity: 0.72;
+  }
+}
+
+.payment-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+}
+
+.payment-loading__dialog {
+  display: grid;
+  width: 104px;
+  height: 104px;
+  justify-items: center;
+  align-content: center;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.68);
+  color: #fff;
+}
+
+.payment-loading__spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.34);
+  border-top-color: #fff;
+  animation: payment-loading-spin 0.8s linear infinite;
+}
+
+.payment-loading__dialog p {
+  margin-top: 14px;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+@keyframes payment-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import CoursePlanView from '@/views/CoursePlanView.vue'
 import PaymentResultView from '@/views/PaymentResultView.vue'
 import PaymentView from '@/views/PaymentView.vue'
 import ScheduleView from '@/views/ScheduleView.vue'
@@ -32,6 +33,11 @@ const router = createRouter({
       path: '/payment/result',
       name: 'payment-result',
       component: PaymentResultView,
+    },
+    {
+      path: '/course-plan',
+      name: 'course-plan',
+      component: CoursePlanView,
     },
   ],
 })
