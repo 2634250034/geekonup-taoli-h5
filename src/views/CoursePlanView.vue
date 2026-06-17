@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { fetchPlanDetail, type CoursePlanDetail } from '@/api/plan'
 import arrowIcon from '@/assets/image/arrow.svg'
 import topIcon from '@/assets/image/top-icon.svg'
 import rightIcon from '@/assets/image/right.svg'
@@ -8,7 +10,6 @@ import lessonIcon from '@/assets/image/lesson-icon.svg'
 interface PlanStage {
   id: number
   title: string
-  range: string
   lessonCount: string
   name: string
   goal: string
@@ -24,11 +25,16 @@ interface LessonDetail {
 
 type LessonSheetDragSource = 'pointer' | 'touch'
 
+const route = useRoute()
 const expandedStageIds = ref<number[]>([1])
 const showLessonSheet = ref(false)
 const lessonSheetDragY = ref(0)
 const isLessonSheetDragging = ref(false)
 const shouldIgnoreHandleClick = ref(false)
+const planDetail = ref<CoursePlanDetail | null>(null)
+const isLoading = ref(false)
+const errorMessage = ref('')
+const activeLessonStageId = ref<number | null>(null)
 
 let lessonSheetDragStartY = 0
 let lessonSheetDragSource: LessonSheetDragSource | null = null
@@ -37,66 +43,48 @@ let isBodyScrollLocked = false
 let originalBodyStyle: Partial<CSSStyleDeclaration> = {}
 let originalHtmlOverflow = ''
 
-const planInfo = [
-  { label: '课程科目', value: '商务英语' },
-  { label: '规划节数', value: '30节' },
-]
+const token = computed(() => {
+  const value = route.query.token
+  const tokenValue = Array.isArray(value) ? value[0] : value
 
-const basicSituation =
-  '学员在连读和弱读方面仍需加强，部分长句的语调不够自然。词汇量基本够用，但同义词替换能力较弱。'
-
-const stageGoal =
-  '掌握日常基础沟通话术，能够听懂简单的日常对话，独立完成基础问候、自我介绍、简单需求表达，建立开口自信，为后续进阶学习奠定基础（适配零基础/基础薄弱学员）。掌握日常基础沟通话术，能够听懂简单的日常对话，独立完成基础问候、自我介绍、简单需求表达，建立开口自信，为后续进阶学习奠定基础（适配零基础/基础薄弱学员）。'
-
-const stages: PlanStage[] = [
+  return typeof tokenValue === 'string' ? tokenValue : ''
+})
+const planInfo = computed(() => [
+  { label: '课程科目', value: planDetail.value?.subjectName || '暂无' },
   {
-    id: 1,
-    title: '第一阶段',
-    range: '第14~30节',
-    lessonCount: '17节课',
-    name: '日常基础表达',
-    goal: stageGoal,
-    scene: '聚焦日常高频社交场景，覆盖“认识新朋友、课堂展示、线上交流”等场景，确保学完能直接运用。',
-    learningGoal:
-      '掌握20+日常核心词汇（问候、身份、简单需求相关）；能独立完成基础沟通，发音清晰、表达连贯。',
+    label: '规划节数',
+    value:
+      typeof planDetail.value?.totalCount === 'number'
+        ? `${planDetail.value.totalCount}节`
+        : '暂无',
   },
-  {
-    id: 2,
-    title: '第一阶段',
-    range: '第14~30节',
-    lessonCount: '17节课',
-    name: '日常基础表达',
-    goal: stageGoal,
-    scene: '聚焦日常高频社交场景，覆盖“认识新朋友、课堂展示、线上交流”等场景，确保学完能直接运用。',
-    learningGoal:
-      '掌握20+日常核心词汇（问候、身份、简单需求相关）；能独立完成基础沟通，发音清晰、表达连贯。',
-  },
-  {
-    id: 3,
-    title: '第一阶段',
-    range: '第14~30节',
-    lessonCount: '17节课',
-    name: '日常基础表达',
-    goal: stageGoal,
-    scene: '聚焦日常高频社交场景，覆盖“认识新朋友、课堂展示、线上交流”等场景，确保学完能直接运用。',
-    learningGoal:
-      '掌握20+日常核心词汇（问候、身份、简单需求相关）；能独立完成基础沟通，发音清晰、表达连贯。',
-  },
-]
-
-const lessonTarget =
-  '掌握7个核心基础词汇（name、age、hobby、like、sing、read、sports），能准确认读、理解含义并灵活运用；能听懂他人的简单自我介绍，快速提取姓名、年龄、兴趣等核心信息，做出准确回应；'
-
-const lessonDetails: LessonDetail[] = Array.from({ length: 5 }, (_, index) => ({
-  id: index + 1,
-  title: '第 1 课：自我介绍',
-  target: lessonTarget,
-}))
-
+])
+const basicSituation = computed(() => planDetail.value?.basicSituation?.trim() ?? '')
+const stages = computed<PlanStage[]>(() =>
+  (planDetail.value?.stages ?? []).map((stage, index) => ({
+    id: index + 1,
+    title: `第${index + 1}阶段`,
+    lessonCount: typeof stage.stageCount === 'number' ? `${stage.stageCount}节课` : '暂无节数',
+    name: stage.stageName || '暂无阶段名称',
+    goal: stage.stageGoal || '暂无阶段目标',
+    scene: stage.sceneTheme || '暂无场景主题',
+    learningGoal: stage.studyGoal || '暂无学习目标',
+  })),
+)
 const expandedStageSet = computed(() => new Set(expandedStageIds.value))
 const lessonSheetPanelStyle = computed(() => ({
   '--lesson-sheet-drag-y': `${lessonSheetDragY.value}px`,
 }))
+const activeLessonDetails = computed<LessonDetail[]>(() => {
+  const stageIndex = activeLessonStageId.value === null ? -1 : activeLessonStageId.value - 1
+  const lessons = planDetail.value?.stages?.[stageIndex]?.lessons ?? []
+
+  return lessons.map((lesson, index) => ({
+    id: index + 1,
+    title: lesson.lessonTheme || `第 ${index + 1} 课`,
+    target: lesson.lessonGoal || '暂无课次目标',
+  }))
+})
 
 function isStageExpanded(stageId: number) {
   return expandedStageSet.value.has(stageId)
@@ -111,12 +99,33 @@ function toggleStage(stageId: number) {
   expandedStageIds.value = [...expandedStageIds.value, stageId]
 }
 
-function openLessonSheet() {
+async function loadPlanDetail() {
+  if (!token.value) {
+    errorMessage.value = '分享链接缺少 token 参数'
+    return
+  }
+
+  isLoading.value = true
+  errorMessage.value = ''
+
+  try {
+    planDetail.value = await fetchPlanDetail(token.value)
+    expandedStageIds.value = planDetail.value.stages?.length ? [1] : []
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '规划详情加载失败'
+  } finally {
+    isLoading.value = false
+  }
+}
+
+function openLessonSheet(stageId: number) {
+  activeLessonStageId.value = stageId
   showLessonSheet.value = true
 }
 
 function closeLessonSheet() {
   showLessonSheet.value = false
+  activeLessonStageId.value = null
 }
 
 function resetLessonSheetDrag() {
@@ -306,95 +315,106 @@ watch(showLessonSheet, (visible) => {
 onBeforeUnmount(() => {
   unlockBodyScroll()
 })
+
+onMounted(() => {
+  void loadPlanDetail()
+})
 </script>
 
 <template>
   <main class="page course-plan-page">
-    <section class="plan-info-card">
-      <dl>
-        <div v-for="item in planInfo" :key="item.label">
-          <dt>{{ item.label }}</dt>
-          <dd>{{ item.value }}</dd>
-        </div>
-      </dl>
-    </section>
+    <p v-if="isLoading" class="plan-state">加载中...</p>
+    <p v-else-if="errorMessage" class="plan-state">{{ errorMessage }}</p>
 
-    <section class="basic-card">
-      <h1>基本情况</h1>
-      <p>{{ basicSituation }}</p>
-    </section>
-
-    <section class="stage-list" aria-label="课程阶段">
-      <article v-for="stage in stages" :key="stage.id" class="stage-card">
-        <header class="stage-card__header">
-          <button
-            class="stage-card__toggle"
-            type="button"
-            :aria-expanded="isStageExpanded(stage.id)"
-            @click="toggleStage(stage.id)"
-          >
-            <img
-              :class="{ 'is-expanded': isStageExpanded(stage.id) }"
-              :src="arrowIcon"
-              alt=""
-              aria-hidden="true"
-            />
-          </button>
-
-          <div class="stage-card__title">
-            <h2>{{ stage.title }}</h2>
-            <p>
-              {{ stage.range }} <span>{{ stage.lessonCount }}</span>
-            </p>
+    <template v-else>
+      <section class="plan-info-card">
+        <dl>
+          <div v-for="item in planInfo" :key="item.label">
+            <dt>{{ item.label }}</dt>
+            <dd>{{ item.value }}</dd>
           </div>
+        </dl>
+      </section>
 
-          <button class="stage-card__detail" type="button" @click="toggleStage(stage.id)">
-            查看详情
-            <img :src="rightIcon" alt="查看详情" />
-          </button>
-        </header>
+      <section v-if="basicSituation" class="basic-card">
+        <h1>基本情况</h1>
+        <p>{{ basicSituation }}</p>
+      </section>
 
-        <template v-if="isStageExpanded(stage.id)">
-          <div class="stage-content">
-            <section>
-              <h3>阶段名称</h3>
-              <p>{{ stage.name }}</p>
-            </section>
+      <section v-if="stages.length > 0" class="stage-list" aria-label="课程阶段">
+        <article v-for="stage in stages" :key="stage.id" class="stage-card">
+          <header class="stage-card__header">
+            <button
+              class="stage-card__toggle"
+              type="button"
+              :aria-expanded="isStageExpanded(stage.id)"
+              @click="toggleStage(stage.id)"
+            >
+              <img
+                :class="{ 'is-expanded': isStageExpanded(stage.id) }"
+                :src="arrowIcon"
+                alt=""
+                aria-hidden="true"
+              />
+            </button>
 
-            <section>
-              <h3>阶段目标</h3>
-              <p>{{ stage.goal }}</p>
-            </section>
+            <div class="stage-card__title">
+              <h2>{{ stage.title }}</h2>
+              <p>
+                {{ stage.name }} <span>{{ stage.lessonCount }}</span>
+              </p>
+            </div>
 
-            <section>
-              <h3>场景主题</h3>
-              <p>{{ stage.scene }}</p>
-            </section>
+            <button class="stage-card__detail" type="button" @click="toggleStage(stage.id)">
+              查看详情
+              <img :src="rightIcon" alt="查看详情" />
+            </button>
+          </header>
 
-            <section>
-              <h3>学习目标</h3>
-              <p>{{ stage.learningGoal }}</p>
-            </section>
-          </div>
+          <template v-if="isStageExpanded(stage.id)">
+            <div class="stage-content">
+              <section>
+                <h3>阶段名称</h3>
+                <p>{{ stage.name }}</p>
+              </section>
 
-          <button class="lesson-entry" type="button" @click="openLessonSheet">
-            <span>
-              <img :src="lessonIcon" alt="" aria-hidden="true" />
-              课次详情
-            </span>
-            <span>
-              查看
-              <img class="lesson-entry__arrow" :src="rightIcon" alt="查看" />
-            </span>
-          </button>
+              <section>
+                <h3>阶段目标</h3>
+                <p>{{ stage.goal }}</p>
+              </section>
 
-          <button class="stage-collapse" type="button" @click="toggleStage(stage.id)">
-            <img :src="topIcon" alt="" aria-hidden="true" />
-            收起
-          </button>
-        </template>
-      </article>
-    </section>
+              <section>
+                <h3>场景主题</h3>
+                <p>{{ stage.scene }}</p>
+              </section>
+
+              <section>
+                <h3>学习目标</h3>
+                <p>{{ stage.learningGoal }}</p>
+              </section>
+            </div>
+
+            <button class="lesson-entry" type="button" @click="openLessonSheet(stage.id)">
+              <span>
+                <img :src="lessonIcon" alt="" aria-hidden="true" />
+                课次详情
+              </span>
+              <span>
+                查看
+                <img class="lesson-entry__arrow" :src="rightIcon" alt="查看" />
+              </span>
+            </button>
+
+            <button class="stage-collapse" type="button" @click="toggleStage(stage.id)">
+              <img :src="topIcon" alt="" aria-hidden="true" />
+              收起
+            </button>
+          </template>
+        </article>
+      </section>
+
+      <p v-else class="plan-state">暂无课程规划</p>
+    </template>
 
     <Teleport to="body">
       <div
@@ -426,7 +446,9 @@ onBeforeUnmount(() => {
           ></button>
 
           <div class="lesson-sheet__content">
-            <article v-for="lesson in lessonDetails" :key="lesson.id" class="lesson-card">
+            <p v-if="activeLessonDetails.length === 0" class="lesson-empty">暂无课次详情</p>
+
+            <article v-for="lesson in activeLessonDetails" :key="lesson.id" class="lesson-card">
               <header>{{ lesson.title }}</header>
               <section>
                 <h3>课次目标</h3>
@@ -446,6 +468,16 @@ onBeforeUnmount(() => {
   padding: 12px 12px calc(30px + var(--safe-bottom));
   overflow-x: hidden;
   background: #f6f7fa;
+}
+
+.plan-state {
+  border-radius: 12px;
+  background: #fff;
+  color: #697283;
+  font-size: 15px;
+  line-height: 24px;
+  padding: 28px 16px;
+  text-align: center;
 }
 
 .plan-info-card,
@@ -728,6 +760,14 @@ onBeforeUnmount(() => {
   gap: 16px;
   padding-bottom: 8px;
   -webkit-overflow-scrolling: touch;
+}
+
+.lesson-empty {
+  color: #697283;
+  font-size: 15px;
+  line-height: 24px;
+  padding: 28px 16px;
+  text-align: center;
 }
 
 .lesson-card {
