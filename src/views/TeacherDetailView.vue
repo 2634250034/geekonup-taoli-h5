@@ -1,22 +1,28 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import aiIcon from '@/assets/image/ai-icon.svg'
 import avatarImage from '@/assets/image/avatar.png'
 import starIcon from '@/assets/image/star.svg'
+import { fetchTeacherDetail } from '@/api/teacher'
 import SectionCard from '@/components/SectionCard.vue'
 import TeacherProfileCard from '@/components/TeacherProfileCard.vue'
 import { detailTeacher } from '@/data/teachers'
+import type { Teacher } from '@/types/teacher'
 
 const tabs = ['老师介绍', '学生评价', '可上课时间'] as const
 type DetailTab = (typeof tabs)[number]
 
 const router = useRouter()
+const route = useRoute()
 const activeTab = ref<DetailTab>('老师介绍')
-const teacher = computed(() => detailTeacher)
+const teacher = ref<Teacher>(detailTeacher)
+const isLoading = ref(false)
+const errorMessage = ref('')
 
-const certificateItems = Array.from({ length: 6 }, (_, index) => index)
-const feedbackItems = Array.from({ length: 4 }, (_, index) => index)
+const teacherId = computed(() => Number(route.params.id))
+const certificateItems = computed(() => teacher.value.certificateContent ?? [])
+const feedbackItems = computed(() => teacher.value.studentFeedback ?? [])
 const overallRating = '4.7'
 const ratingStars = Array.from({ length: 5 }, (_, index) => index)
 const ratingMetrics = [
@@ -62,14 +68,45 @@ const studentReviews = [
   },
 ]
 
+async function loadTeacherDetail() {
+  if (!Number.isFinite(teacherId.value)) {
+    errorMessage.value = '缺少老师 ID'
+    return
+  }
+
+  isLoading.value = true
+  errorMessage.value = ''
+
+  try {
+    teacher.value = await fetchTeacherDetail(teacherId.value)
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '老师详情加载失败'
+  } finally {
+    isLoading.value = false
+  }
+}
+
+function goSchedule() {
+  router.push({
+    path: '/schedule',
+    query: {
+      teacherId: String(teacherId.value),
+    },
+  })
+}
+
 function handleTabClick(tab: DetailTab) {
   if (tab === '可上课时间') {
-    router.push('/schedule')
+    goSchedule()
     return
   }
 
   activeTab.value = tab
 }
+
+onMounted(() => {
+  void loadTeacherDetail()
+})
 </script>
 
 <template>
@@ -87,7 +124,10 @@ function handleTabClick(tab: DetailTab) {
     </nav>
 
     <div class="detail-page__content">
-      <template v-if="activeTab === '老师介绍'">
+      <p v-if="isLoading" class="detail-state">加载中...</p>
+      <p v-else-if="errorMessage" class="detail-state">{{ errorMessage }}</p>
+
+      <template v-else-if="activeTab === '老师介绍'">
         <TeacherProfileCard :teacher="teacher" />
 
         <SectionCard title="可授课学科">
@@ -106,14 +146,10 @@ function handleTabClick(tab: DetailTab) {
             <p>{{ teacher.scores }}</p>
 
             <h3>资格证书：</h3>
-            <div class="certificate-grid">
-              <img
-                v-for="item in certificateItems"
-                :key="item"
-                src="@/assets/image/cert-placeholder.png"
-                alt="资格证书"
-              />
+            <div v-if="certificateItems.length > 0" class="certificate-grid">
+              <img v-for="item in certificateItems" :key="item" :src="item" alt="资格证书" />
             </div>
+            <p v-else>暂无资格证书</p>
           </div>
         </SectionCard>
 
@@ -124,14 +160,10 @@ function handleTabClick(tab: DetailTab) {
         </SectionCard>
 
         <SectionCard title="学员反馈">
-          <div class="feedback-strip">
-            <img
-              v-for="item in feedbackItems"
-              :key="item"
-              src="@/assets/image/cert-placeholder.png"
-              alt="学员反馈"
-            />
+          <div v-if="feedbackItems.length > 0" class="feedback-strip">
+            <img v-for="item in feedbackItems" :key="item" :src="item" alt="学员反馈" />
           </div>
+          <p v-else class="intro-text">暂无学员反馈</p>
         </SectionCard>
       </template>
 
@@ -203,8 +235,8 @@ function handleTabClick(tab: DetailTab) {
       </template>
     </div>
 
-    <footer v-if="activeTab === '老师介绍'" class="detail-action">
-      <RouterLink to="/schedule">选择预约时间</RouterLink>
+    <footer v-if="activeTab === '老师介绍' && !isLoading && !errorMessage" class="detail-action">
+      <button type="button" @click="goSchedule">选择预约时间</button>
     </footer>
   </main>
 </template>
@@ -260,6 +292,16 @@ function handleTabClick(tab: DetailTab) {
   display: grid;
   gap: 12px;
   padding: 12px;
+}
+
+.detail-state {
+  border-radius: 12px;
+  background: #fff;
+  color: var(--color-text-secondary);
+  font-size: 15px;
+  line-height: 24px;
+  padding: 28px 16px;
+  text-align: center;
 }
 
 .is-review-tab .detail-page__content {
@@ -349,8 +391,9 @@ function handleTabClick(tab: DetailTab) {
   background: rgba(255, 255, 255, 0.96);
   padding: 14px 14px calc(14px + var(--safe-bottom));
 
-  a {
+  button {
     display: flex;
+    width: 100%;
     min-height: 52px;
     align-items: center;
     justify-content: center;

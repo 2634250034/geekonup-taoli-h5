@@ -1,14 +1,17 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import fallbackAvatar from '@/assets/image/avatar.png'
 import type { Teacher } from '@/types/teacher'
 
-defineProps<{
+const props = defineProps<{
   teacher: Teacher
 }>()
+
+const isGoldTeacher = computed(() => props.teacher.teacherType === 'GOLD')
 </script>
 
 <template>
-  <article class="teacher-card">
+  <article class="teacher-card" :class="{ 'teacher-card--gold': isGoldTeacher }">
     <RouterLink
       class="teacher-card__main"
       :to="`/teachers/${teacher.id}`"
@@ -25,6 +28,7 @@ defineProps<{
         <div class="teacher-card__title-row">
           <h2>{{ teacher.name }}</h2>
           <img
+            v-if="isGoldTeacher"
             class="teacher-card__badge"
             src="@/assets/image/gold-badge-icon.svg"
             :alt="teacher.title"
@@ -54,7 +58,12 @@ defineProps<{
       <img src="@/assets/image/filled-time.svg" alt="" aria-hidden="true" />
       <span>可约：</span>
       <p>{{ teacher.availableDates.join('、') }}...</p>
-      <RouterLink class="teacher-card__more" to="/schedule">更多</RouterLink>
+      <RouterLink
+        class="teacher-card__more"
+        :to="{ path: '/schedule', query: { teacherId: String(teacher.id) } }"
+      >
+        更多
+      </RouterLink>
       <img
         class="teacher-card__more-icon"
         src="@/assets/image/arrow-right.svg"
@@ -81,11 +90,16 @@ defineProps<{
 .teacher-card {
   overflow: hidden;
   border-radius: 12px;
-  border: 1px solid rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--color-surface);
+  box-shadow: 0 8px 24px rgba(15, 31, 64, 0.05);
+}
+
+.teacher-card--gold {
+  border-color: rgba(0, 0, 0, 0.03);
   background:
     linear-gradient(180deg, rgba(255, 221, 139, 0.55) 0, rgba(255, 255, 255, 0.95) 92px),
     var(--color-surface);
-  box-shadow: 0 8px 24px rgba(15, 31, 64, 0.05);
 }
 
 .teacher-card__main {

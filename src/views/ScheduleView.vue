@@ -1,102 +1,253 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { createSchedule, periods, scheduleDays } from '@/data/teachers'
-import type { TimePeriod, TimeSlot } from '@/types/teacher'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { fetchTeacherAvailability } from '@/api/teacher'
 
-const activePeriod = ref<TimePeriod>('morning')
-const schedule = computed(() => createSchedule(activePeriod.value))
+type SchedulePeriod = '上午' | '下午' | '晚上' | '凌晨'
 
-const selectedSlot = ref<TimeSlot | null>(null)
-
-const currentSelection = computed(() => selectedSlot.value)
-const currentDateText = computed(() => {
-  const slot = currentSelection.value
-
-  if (!slot) {
-    return ''
-  }
-
-  const date = slot.date.includes('月') ? slot.date : `${slot.date.replace('.', '月')}日`
-  return `${date} 周${slot.weekday}`
-})
-
-function selectSlot(slot: TimeSlot) {
-  if (slot.state === 'disabled') {
-    return
-  }
-
-  if (selectedSlot.value?.id === slot.id) {
-    selectedSlot.value = null
-    return
-  }
-
-  selectedSlot.value = slot
+interface ScheduleDay {
+  key: string
+  week: string
+  date: string
+  label: string
 }
 
-function switchPeriod(period: TimePeriod) {
+interface AvailabilitySlot {
+  isRegular?: boolean
+  date?: string
+  times?: string[]
+}
+
+const periodTimes: Record<SchedulePeriod, string[]> = {
+  上午: createHalfHourTimes(6, 12),
+  下午: createHalfHourTimes(12, 18),
+  晚上: createHalfHourTimes(18, 24),
+  凌晨: createHalfHourTimes(0, 6),
+}
+const defaultPeriods: SchedulePeriod[] = ['上午', '下午', '晚上']
+
+const activePeriod = ref<SchedulePeriod>('晚上')
+const selectedSlotKey = ref('')
+const selectedSlotTime = ref('')
+const selectedSlotDay = ref<ScheduleDay | null>(null)
+const route = useRoute()
+const isLoading = ref(false)
+const errorMessage = ref('')
+const availabilitySlots = ref<AvailabilitySlot[]>([])
+
+const teacherId = computed(() => Number(route.query.teacherId))
+const scheduleDays = computed(() => createScheduleDays())
+const availablePeriods = computed<SchedulePeriod[]>(() =>
+  hasAvailablePeriod('凌晨') ? [...defaultPeriods, '凌晨'] : defaultPeriods,
+)
+const scheduleRows = computed(() =>
+  periodTimes[activePeriod.value].map((time) => ({
+    time,
+    cells: scheduleDays.value.map((day) => ({
+      day,
+      available: isTrialSlotAvailable(day.key, time),
+    })),
+  })),
+)
+const selectedTimeRange = computed(() =>
+  selectedSlotTime.value
+    ? `${selectedSlotTime.value}-${nextHalfHour(selectedSlotTime.value)}`
+    : '--:--',
+)
+const selectedDateText = computed(() => selectedSlotDay.value?.label || '请选择预约日期')
+
+function createHalfHourTimes(startHour: number, endHour: number) {
+  const times: string[] = []
+
+  for (let hour = startHour; hour < endHour; hour += 1) {
+    times.push(`${padTimePart(hour)}:00`, `${padTimePart(hour)}:30`)
+  }
+
+  return times
+}
+
+function createScheduleDays(): ScheduleDay[] {
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date()
+    date.setDate(date.getDate() + index)
+    const week = getWeekdayText(date.getDay())
+    const monthText = padTimePart(date.getMonth() + 1)
+    const dayText = padTimePart(date.getDate())
+
+    return {
+      key: `${date.getFullYear()}-${monthText}-${dayText}`,
+      week,
+      date: `${monthText}.${dayText}`,
+      label: `${monthText}月${dayText}日 周${week}`,
+    }
+  })
+}
+
+function getWeekdayText(dayIndex: number) {
+  const weekdayMap = ['日', '一', '二', '三', '四', '五', '六']
+
+  return weekdayMap[dayIndex] ?? ''
+}
+
+function nextHalfHour(time: string) {
+  const [hourText = '0', minuteText = '0'] = time.split(':')
+  const date = new Date(2000, 0, 1, Number(hourText), Number(minuteText) + 30)
+
+  return `${padTimePart(date.getHours())}:${padTimePart(date.getMinutes())}`
+}
+
+function padTimePart(value: number) {
+  return String(value).padStart(2, '0')
+}
+
+function normalizeSlotDate(date?: string) {
+  return date?.slice(0, 10) ?? ''
+}
+
+function normalizeSlotTime(time: string) {
+  const match = time.match(/(\d{1,2}):(\d{2})/)
+
+  if (!match) return time
+
+  return `${padTimePart(Number(match[1]))}:${match[2]}`
+}
+
+function isTrialSlotAvailable(dayKey: string, time: string) {
+  return availabilitySlots.value.some(
+    (slot) =>
+      normalizeSlotDate(slot.date) === dayKey &&
+      slot.isRegular !== true &&
+      (slot.times || []).map(normalizeSlotTime).includes(time),
+  )
+}
+
+function hasAvailablePeriod(period: SchedulePeriod) {
+  return periodTimes[period].some((time) =>
+    scheduleDays.value.some((day) => isTrialSlotAvailable(day.key, time)),
+  )
+}
+
+function getFirstAvailablePeriod() {
+  return availablePeriods.value.find((period) => hasAvailablePeriod(period))
+}
+
+async function loadTeacherAvailability() {
+  selectedSlotKey.value = ''
+  selectedSlotTime.value = ''
+  selectedSlotDay.value = null
+
+  if (!Number.isFinite(teacherId.value)) {
+    errorMessage.value = '缺少老师 ID'
+    return
+  }
+
+  isLoading.value = true
+  errorMessage.value = ''
+
+  try {
+    availabilitySlots.value = await fetchTeacherAvailability(teacherId.value)
+    activePeriod.value = getFirstAvailablePeriod() || availablePeriods.value[0] || '上午'
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '老师可约时间加载失败'
+  } finally {
+    isLoading.value = false
+  }
+}
+
+function selectSlot(time: string, day: ScheduleDay) {
+  if (!isTrialSlotAvailable(day.key, time)) {
+    return
+  }
+
+  const nextSlotKey = `${day.key}-${time}`
+
+  if (selectedSlotKey.value === nextSlotKey) {
+    selectedSlotKey.value = ''
+    selectedSlotTime.value = ''
+    selectedSlotDay.value = null
+    return
+  }
+
+  selectedSlotKey.value = nextSlotKey
+  selectedSlotTime.value = time
+  selectedSlotDay.value = day
+}
+
+function switchPeriod(period: SchedulePeriod) {
   activePeriod.value = period
-  selectedSlot.value = null
 }
+
+onMounted(() => {
+  void loadTeacherAvailability()
+})
 </script>
 
 <template>
   <main class="page schedule-page">
     <section class="selection-card">
       <p>当前选择：</p>
-      <strong>{{ currentSelection?.label }}</strong>
-      <span>{{ currentDateText }}</span>
+      <strong>{{ selectedTimeRange }}</strong>
+      <span>{{ selectedDateText }}</span>
     </section>
 
     <div class="period-tabs" role="tablist" aria-label="预约时段">
       <button
-        v-for="period in periods"
-        :key="period.value"
+        v-for="period in availablePeriods"
+        :key="period"
         type="button"
-        :class="{ 'is-active': activePeriod === period.value }"
-        @click="switchPeriod(period.value)"
+        :class="{ 'is-active': activePeriod === period }"
+        @click="switchPeriod(period)"
       >
-        {{ period.label }}
+        {{ period }}
       </button>
     </div>
 
-    <section class="schedule-table" aria-label="可上课时间">
+    <p v-if="isLoading" class="schedule-state">加载中...</p>
+    <p v-else-if="errorMessage" class="schedule-state">{{ errorMessage }}</p>
+    <p v-else-if="availabilitySlots.length === 0" class="schedule-state">暂无可约时间</p>
+
+    <section v-else class="schedule-table" aria-label="可上课时间">
       <div class="schedule-table__head schedule-table__row">
         <div class="schedule-table__time-col"></div>
         <div
           v-for="day in scheduleDays"
-          :key="`${day.weekday}-${day.date}`"
+          :key="day.key"
           class="schedule-table__day-col schedule-table__day-head"
         >
-          <strong>{{ day.weekday }}</strong>
+          <strong>{{ day.week }}</strong>
           <span>{{ day.date }}</span>
         </div>
       </div>
 
-      <div v-for="(row, rowIndex) in schedule" :key="rowIndex" class="schedule-table__row">
+      <div v-for="row in scheduleRows" :key="row.time" class="schedule-table__row">
         <div class="schedule-table__time-col">
-          <span>00:00</span>
+          <span>{{ row.time }}</span>
         </div>
 
-        <div v-for="slot in row" :key="slot.id" class="schedule-table__day-col">
+        <div
+          v-for="cell in row.cells"
+          :key="`${cell.day.key}-${row.time}`"
+          class="schedule-table__day-col"
+        >
           <button
             type="button"
             class="schedule-cell"
             :class="[
-              `is-${slot.state}`,
+              cell.available ? 'is-available' : 'is-disabled',
               {
-                'is-picked': selectedSlot?.id === slot.id,
+                'is-picked': selectedSlotKey === `${cell.day.key}-${row.time}`,
               },
             ]"
-            :disabled="slot.state === 'disabled'"
-            @click="selectSlot(slot)"
+            :disabled="!cell.available"
+            @click="selectSlot(row.time, cell.day)"
           >
             <img
-              v-if="selectedSlot?.id === slot.id"
+              v-if="selectedSlotKey === `${cell.day.key}-${row.time}`"
               class="schedule-cell__selected-image"
               src="@/assets/image/selected-time.png"
               alt="已选择"
             />
-            <span v-else-if="slot.state !== 'disabled'">可约</span>
+            <span v-else-if="cell.available">可约</span>
             <span v-else>/</span>
           </button>
         </div>
@@ -104,7 +255,7 @@ function switchPeriod(period: TimePeriod) {
     </section>
 
     <footer class="schedule-action">
-      <RouterLink to="/payment">确认约课</RouterLink>
+      <RouterLink :class="{ 'is-disabled': !selectedSlotKey }" to="/payment">确认约课</RouterLink>
     </footer>
   </main>
 </template>
@@ -164,6 +315,17 @@ function switchPeriod(period: TimePeriod) {
     background: #e9f3ff;
     color: var(--color-primary);
   }
+}
+
+.schedule-state {
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 15px;
+  line-height: 24px;
+  margin-top: 16px;
+  padding: 28px 16px;
+  text-align: center;
 }
 
 .schedule-table {
@@ -283,6 +445,11 @@ function switchPeriod(period: TimePeriod) {
     color: #fff;
     font-size: 20px;
     font-weight: 600;
+
+    &.is-disabled {
+      opacity: 0.55;
+      pointer-events: none;
+    }
   }
 }
 </style>

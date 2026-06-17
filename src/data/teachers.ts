@@ -3,6 +3,7 @@ import type { Teacher, TimePeriod, TimeSlot } from '@/types/teacher'
 export const detailTeacher: Teacher = {
   id: 1,
   name: '李娉',
+  teacherType: 'GOLD',
   gender: 'female',
   school: '星洲艺术学院',
   degree: '本科',
@@ -36,6 +37,7 @@ export const recommendedTeachers: Teacher[] = [
   {
     id: 1,
     name: '王老师',
+    teacherType: 'GOLD',
     gender: 'male',
     school: '东北财经大学',
     degree: '本科',
@@ -54,6 +56,7 @@ export const recommendedTeachers: Teacher[] = [
   {
     id: 2,
     name: '王老师',
+    teacherType: 'GOLD',
     gender: 'male',
     school: '东北财经大学',
     degree: '本科',
@@ -71,6 +74,7 @@ export const recommendedTeachers: Teacher[] = [
   {
     id: 3,
     name: '王老师',
+    teacherType: 'GOLD',
     gender: 'male',
     school: '东北财经大学',
     degree: '本科',

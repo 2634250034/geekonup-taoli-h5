@@ -1,4 +1,4 @@
-import { post } from '@/api/request'
+import { get, post } from '@/api/request'
 import type { Teacher } from '@/types/teacher'
 
 interface ApiResponse<T> {
@@ -17,6 +17,7 @@ interface PageResponse<T> {
 
 interface TeacherAvailabilityTime {
   date?: string
+  weekDay?: number
   times?: string[]
 }
 
@@ -35,8 +36,16 @@ interface TeacherResponse {
   intro?: string
   teachingExperience?: string
   languageScore?: string
+  certificateContent?: string[]
+  studentFeedback?: string[]
+  remarkContent?: string
   subjectNames?: string[]
   availabilityTime?: TeacherAvailabilityTime[]
+}
+
+interface TeacherAvailabilityResponse {
+  isRepeat?: boolean
+  slotData?: TeacherAvailabilityTime[]
 }
 
 interface TeacherPageRequest {
@@ -94,6 +103,7 @@ function mapTeacher(teacher: TeacherResponse): Teacher {
     id: teacher.id ?? 0,
     name: teacher.name || '老师',
     avatar: teacher.avatar,
+    teacherType: teacher.teacherType,
     gender: teacher.gender === 'FEMALE' ? 'female' : 'male',
     school: teacher.school || '暂无学校信息',
     degree: teacher.eduBack ? degreeTextMap[teacher.eduBack] : '暂无学历信息',
@@ -107,6 +117,9 @@ function mapTeacher(teacher: TeacherResponse): Teacher {
     availableDates: getAvailableDates(teacher),
     scores: teacher.languageScore || '暂无教学成果',
     experiences: teacher.teachingExperience ? [teacher.teachingExperience] : [],
+    certificateContent: teacher.certificateContent ?? [],
+    studentFeedback: teacher.studentFeedback ?? [],
+    remarkContent: teacher.remarkContent,
   }
 }
 
@@ -139,4 +152,30 @@ export async function fetchTeacherPage(params: TeacherPageRequest): Promise<Teac
     current: response.data?.current ?? params.current ?? 1,
     size: response.data?.size ?? params.size ?? 10,
   }
+}
+
+export async function fetchTeacherDetail(teacherId: number): Promise<Teacher> {
+  const response = await get<ApiResponse<TeacherResponse>>('/student/teacher/getTeacherInfo', {
+    params: {
+      teacherId,
+    },
+  })
+
+  if (!isSuccessResponse(response)) {
+    throw new Error(response.message || '老师详情加载失败')
+  }
+
+  return mapTeacher(response.data ?? {})
+}
+
+export async function fetchTeacherAvailability(teacherId: number) {
+  const response = await get<ApiResponse<TeacherAvailabilityResponse>>(
+    `/student/teacher/getTeacherAvailability/${teacherId}`,
+  )
+
+  if (!isSuccessResponse(response)) {
+    throw new Error(response.message || '老师可约时间加载失败')
+  }
+
+  return response.data?.slotData ?? []
 }

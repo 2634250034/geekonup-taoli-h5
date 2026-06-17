@@ -1,14 +1,23 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import fallbackAvatar from '@/assets/image/avatar.png'
 import type { Teacher } from '@/types/teacher'
 
-defineProps<{
+const props = defineProps<{
   teacher: Teacher
 }>()
+
+const isGoldTeacher = computed(() => props.teacher.teacherType === 'GOLD')
 </script>
 
 <template>
-  <section class="profile-card">
-    <img class="profile-card__avatar" src="@/assets/image/avatar.png" :alt="teacher.name" />
+  <section class="profile-card" :class="{ 'profile-card--gold': isGoldTeacher }">
+    <img
+      class="profile-card__avatar"
+      :src="teacher.avatar || fallbackAvatar"
+      :alt="teacher.name"
+      @error="($event.target as HTMLImageElement).src = fallbackAvatar"
+    />
 
     <div class="profile-card__body">
       <div class="profile-card__name-row">
@@ -23,6 +32,7 @@ defineProps<{
       </div>
 
       <img
+        v-if="isGoldTeacher"
         class="profile-card__badge"
         src="@/assets/image/gold-badge-icon.svg"
         :alt="teacher.title"
@@ -42,6 +52,10 @@ defineProps<{
   gap: 14px;
   border-radius: 12px;
   padding: 16px 20px;
+  background: var(--color-surface);
+}
+
+.profile-card--gold {
   background:
     linear-gradient(180deg, rgba(255, 221, 139, 0.5) 0, rgba(255, 255, 255, 0.96) 88px),
     var(--color-surface);

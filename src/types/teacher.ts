@@ -2,6 +2,7 @@ export interface Teacher {
   id: number
   name: string
   avatar?: string
+  teacherType?: 'NORMAL' | 'GOLD'
   gender: 'female' | 'male'
   school: string
   degree: string
@@ -15,6 +16,9 @@ export interface Teacher {
   availableDates: string[]
   scores: string
   experiences: string[]
+  certificateContent?: string[]
+  studentFeedback?: string[]
+  remarkContent?: string
 }
 
 export type TimePeriod = 'morning' | 'afternoon' | 'evening'
