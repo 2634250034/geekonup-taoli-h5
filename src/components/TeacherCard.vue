@@ -78,7 +78,10 @@ const isGoldTeacher = computed(() => props.teacher.teacherType === 'GOLD')
         <strong>{{ teacher.trialPrice }}</strong>
       </div>
 
-      <RouterLink class="teacher-card__book" :to="`/teachers/${teacher.id}`">
+      <RouterLink
+        class="teacher-card__book"
+        :to="{ path: '/schedule', query: { teacherId: String(teacher.id) } }"
+      >
         去预约
         <span aria-hidden="true">→</span>
       </RouterLink>

@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import alipayIcon from '@/assets/image/alipay.svg'
 import avatarImage from '@/assets/image/avatar.png'
 import goldBadgeIcon from '@/assets/image/gold-badge-icon.svg'
 import wechatPayIcon from '@/assets/image/weChatPay.svg'
-import { fetchOrderPayInfo, type OrderPayInfo } from '@/api/payment'
+import { createH5Prepay, fetchOrderPayInfo, type OrderPayInfo } from '@/api/payment'
+import { useToast } from '@/composables/useToast'
 
 type PaymentMethod = 'alipay' | 'wechat'
+
+const ORDER_PAY_VALID_SECONDS = 15 * 60
 
 const router = useRouter()
 const route = useRoute()
@@ -16,6 +19,9 @@ const isPaying = ref(false)
 const isLoading = ref(false)
 const errorMessage = ref('')
 const orderInfo = ref<OrderPayInfo | null>(null)
+const nowTime = ref(Date.now())
+const { showToast } = useToast()
+let countdownTimer: number | undefined
 
 const orderCode = computed(() => {
   const value = route.query.orderCode
@@ -42,37 +48,60 @@ const paymentMethods: Array<{
 
 const paymentAmount = computed(() => formatAmount(orderInfo.value?.orderAmount))
 const orderStatusText = computed(() => formatOrderStatus(orderInfo.value?.orderStatus))
+const isFormalOrder = computed(() => orderInfo.value?.orderType === 'FORMAL')
+const remainingSeconds = computed(() => {
+  if (isFormalOrder.value || orderInfo.value?.orderStatus !== 'WAIT_PAY') return null
+
+  const expireDate = parseDateTime(orderInfo.value?.expireTime)
+  if (!expireDate) return null
+
+  const seconds = Math.max(0, Math.floor((expireDate.getTime() - nowTime.value) / 1000))
+
+  return Math.min(ORDER_PAY_VALID_SECONDS, seconds)
+})
+const remainingTimeText = computed(() => formatCountdown(remainingSeconds.value))
 const expireText = computed(() => {
   if (orderInfo.value?.orderStatus !== 'WAIT_PAY') return orderStatusText.value
-  if (!orderInfo.value.expireTime) return '待支付'
 
-  return `待支付，过期时间 ${formatDateTime(orderInfo.value.expireTime)}`
+  return `待支付，剩余时间 ${remainingTimeText.value}`
 })
-const teacherName = computed(() => orderInfo.value?.teacherName || '预约讲师')
-const teacherCode = computed(() => orderInfo.value?.teacherCode || '桃李老师')
-const cardTitle = computed(() => (orderInfo.value?.orderType === 'FORMAL' ? '课程信息' : '预约讲师'))
+const primaryTeacher = computed(() => orderInfo.value?.teachers?.[0] ?? null)
+const teacherName = computed(() => primaryTeacher.value?.teacherName || '预约讲师')
+const teacherCode = computed(() => primaryTeacher.value?.teacherCode || '桃李老师')
+const teacherAvatar = computed(() => primaryTeacher.value?.teacherAvatar || avatarImage)
+const isGoldTeacher = computed(() => primaryTeacher.value?.teacherType === 'GOLD')
+const teacherIntro = computed(
+  () => primaryTeacher.value?.teacherIntro || orderInfo.value?.subjectName || '课程信息加载后展示',
+)
+const cardTitle = computed(() =>
+  orderInfo.value?.orderType === 'FORMAL' ? '课程信息' : '预约讲师',
+)
 const bookingInfo = computed(() =>
-  [
-    {
-      label: '课程科目',
-      value: orderInfo.value?.subjectName,
-    },
-    {
-      label: orderInfo.value?.orderType === 'FORMAL' ? '课时节数' : '预约时间',
-      value:
-        orderInfo.value?.orderType === 'FORMAL'
-          ? formatClassCount(orderInfo.value?.classCount)
-          : formatDateTime(orderInfo.value?.appointTime),
-    },
-    {
-      label: '订单编号',
-      value: orderInfo.value?.orderCode,
-    },
-    {
-      label: '学生姓名',
-      value: orderInfo.value?.studentName,
-    },
-  ].filter((item) => item.value),
+  isFormalOrder.value
+    ? [
+        {
+          label: '课程科目',
+          value: orderInfo.value?.subjectName,
+        },
+        {
+          label: '课时节数',
+          value: formatClassCount(orderInfo.value?.classCount),
+        },
+        {
+          label: '单课时长',
+          value: '50分钟',
+        },
+      ].filter((item) => item.value)
+    : [
+        {
+          label: '预约时间',
+          value: formatAppointmentRange(orderInfo.value?.appointTime),
+        },
+        {
+          label: '课程科目',
+          value: orderInfo.value?.subjectName,
+        },
+      ].filter((item) => item.value),
 )
 
 async function loadOrderPayInfo() {
@@ -105,19 +134,72 @@ function formatClassCount(value?: number) {
   return `${value}节`
 }
 
-function formatDateTime(value?: string) {
-  if (!value) return ''
+function parseDateTime(value?: string) {
+  if (!value) return null
 
-  const date = new Date(value.replace(/-/g, '/'))
+  const localDate = parseBackendLocalDateTime(value)
+  if (localDate) return localDate
 
-  if (Number.isNaN(date.getTime())) return value
+  const fallbackDate = new Date(value.replace(/-/g, '/'))
 
+  return Number.isNaN(fallbackDate.getTime()) ? null : fallbackDate
+}
+
+function parseBackendLocalDateTime(value: string) {
+  const match = value
+    .trim()
+    .match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2})(?::(\d{1,2}))?(?::(\d{1,2}))?)?/)
+
+  if (!match) return null
+
+  const [, year, month, day, hour = '0', minute = '0', second = '0'] = match
+  const date = new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+  )
+
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function formatAppointmentRange(value?: string) {
+  const date = parseDateTime(value)
+  if (!date) return ''
+
+  const endDate = new Date(date.getTime() + 30 * 60 * 1000)
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
+  const week = ['日', '一', '二', '三', '四', '五', '六'][date.getDay()]
+  const startTime = formatHourMinute(date)
+  const endTime = formatHourMinute(endDate)
+
+  return `${month}-${day} 周${week} ${startTime}-${endTime}`
+}
+
+function formatHourMinute(date: Date) {
   const hour = String(date.getHours()).padStart(2, '0')
   const minute = String(date.getMinutes()).padStart(2, '0')
 
-  return `${month}-${day} ${hour}:${minute}`
+  return `${hour}:${minute}`
+}
+
+function formatCountdown(seconds: number | null) {
+  if (seconds === null) return '--:--'
+
+  const minutes = String(Math.floor(seconds / 60)).padStart(2, '0')
+  const nextSeconds = String(seconds % 60).padStart(2, '0')
+
+  return `${minutes}:${nextSeconds}`
+}
+
+function startCountdownTimer() {
+  nowTime.value = Date.now()
+  countdownTimer = window.setInterval(() => {
+    nowTime.value = Date.now()
+  }, 1000)
 }
 
 function formatOrderStatus(status?: OrderPayInfo['orderStatus']) {
@@ -133,28 +215,45 @@ function formatOrderStatus(status?: OrderPayInfo['orderStatus']) {
   return status ? statusMap[status] : '待支付'
 }
 
-function handlePay() {
+async function handlePay() {
   if (isPaying.value || isLoading.value || errorMessage.value || !orderInfo.value) {
+    return
+  }
+
+  if (!orderCode.value) {
+    showToast('缺少订单号', { type: 'error' })
     return
   }
 
   isPaying.value = true
 
-  window.setTimeout(() => {
+  try {
+    await createH5Prepay(orderCode.value)
     router.push('/payment/result')
-  }, 1000)
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : '支付发起失败', { type: 'error' })
+  } finally {
+    isPaying.value = false
+  }
 }
 
 onMounted(() => {
+  startCountdownTimer()
   void loadOrderPayInfo()
+})
+
+onBeforeUnmount(() => {
+  if (countdownTimer) {
+    window.clearInterval(countdownTimer)
+  }
 })
 </script>
 
 <template>
   <main class="page payment-page">
-    <section class="payment-amount" aria-label="支付金额">
+    <section v-if="!isFormalOrder" class="payment-amount" aria-label="支付金额">
       <p>支付金额</p>
-      <strong><span>¥</span>{{ paymentAmount }}</strong>
+      <strong class="webfont"><span>¥</span>{{ paymentAmount }}</strong>
       <small>{{ expireText }}</small>
     </section>
 
@@ -168,12 +267,17 @@ onMounted(() => {
       <h1>{{ cardTitle }}</h1>
 
       <article class="teacher-summary">
-        <img class="teacher-summary__avatar" :src="avatarImage" :alt="teacherName" />
+        <img
+          class="teacher-summary__avatar"
+          :src="teacherAvatar"
+          :alt="teacherName"
+          @error="($event.target as HTMLImageElement).src = avatarImage"
+        />
 
         <div class="teacher-summary__main">
           <div class="teacher-summary__title">
             <h2>{{ teacherName }}</h2>
-            <img :src="goldBadgeIcon" alt="讲师" />
+            <img v-if="isGoldTeacher" :src="goldBadgeIcon" alt="金牌老师" />
           </div>
 
           <p class="teacher-summary__meta">
@@ -182,7 +286,7 @@ onMounted(() => {
         </div>
 
         <p class="teacher-summary__intro">
-          {{ orderInfo?.subjectName || '课程信息加载后展示' }}
+          {{ teacherIntro }}
         </p>
 
         <div class="teacher-summary__tags">
@@ -232,8 +336,8 @@ onMounted(() => {
 
     <footer class="payment-action">
       <div class="payment-action__price">
-        <strong>¥ {{ paymentAmount }}</strong>
-        <p>15分钟内未支付，订单将自动取消</p>
+        <strong class="webfont">¥ {{ paymentAmount }}</strong>
+        <p v-if="!isFormalOrder">15分钟内未支付，订单将自动取消</p>
       </div>
 
       <button
@@ -346,9 +450,9 @@ onMounted(() => {
   margin-top: 16px;
   border-radius: 12px;
   padding: 14px 12px 16px;
-  background:
-    linear-gradient(180deg, rgba(255, 223, 146, 0.58) 0, rgba(255, 255, 255, 0.95) 94px), #fff;
-  box-shadow: 0 10px 22px rgba(30, 41, 59, 0.04);
+  border: 2px solid #fffdf5;
+  background: radial-gradient(157.61% 100% at 50% 100%, #fff 53.17%, #fffae7 87.9%, #fff0cc 100%);
+  // box-shadow: 0 10px 22px rgba(30, 41, 59, 0.04);
 }
 
 .teacher-summary__avatar {
@@ -571,7 +675,7 @@ onMounted(() => {
 .payment-action button {
   display: flex;
   width: 128px;
-  min-height: 56px;
+  min-height: 46px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;

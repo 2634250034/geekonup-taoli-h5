@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { reserveAudition } from '@/api/payment'
 import { fetchTeacherAvailability } from '@/api/teacher'
+import { useToast } from '@/composables/useToast'
+import { getShareToken } from '@/utils/shareToken'
 
 type SchedulePeriod = '上午' | '下午' | '晚上' | '凌晨'
 
@@ -31,11 +34,15 @@ const selectedSlotKey = ref('')
 const selectedSlotTime = ref('')
 const selectedSlotDay = ref<ScheduleDay | null>(null)
 const route = useRoute()
+const router = useRouter()
 const isLoading = ref(false)
 const errorMessage = ref('')
+const isSubmitting = ref(false)
 const availabilitySlots = ref<AvailabilitySlot[]>([])
+const { showToast } = useToast()
 
 const teacherId = computed(() => Number(route.query.teacherId))
+const token = computed(() => getShareToken(route.query.token))
 const scheduleDays = computed(() => createScheduleDays())
 const availablePeriods = computed<SchedulePeriod[]>(() =>
   hasAvailablePeriod('凌晨') ? [...defaultPeriods, '凌晨'] : defaultPeriods,
@@ -177,6 +184,63 @@ function switchPeriod(period: SchedulePeriod) {
   activePeriod.value = period
 }
 
+function getAppointTime() {
+  return selectedSlotDay.value && selectedSlotTime.value
+    ? `${selectedSlotDay.value.key} ${selectedSlotTime.value}:00`
+    : ''
+}
+
+async function confirmSchedule() {
+  if (isSubmitting.value) return
+
+  if (!Number.isFinite(teacherId.value)) {
+    showToast('缺少老师 ID', { type: 'error' })
+    return
+  }
+
+  if (!token.value) {
+    showToast('缺少预约 token', { type: 'error' })
+    return
+  }
+
+  const appointTime = getAppointTime()
+  if (!appointTime) {
+    showToast('请选择预约时间', { type: 'error' })
+    return
+  }
+
+  isSubmitting.value = true
+
+  try {
+    const result = await reserveAudition({
+      token: token.value,
+      teacherId: teacherId.value,
+      appointTime,
+    })
+
+    if (result.needPay && result.orderCode) {
+      router.push({
+        path: '/payment',
+        query: {
+          orderCode: result.orderCode,
+        },
+      })
+      return
+    }
+
+    router.push({
+      path: '/payment/result',
+      query: {
+        type: 'booking',
+      },
+    })
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : '预约提交失败', { type: 'error' })
+  } finally {
+    isSubmitting.value = false
+  }
+}
+
 onMounted(() => {
   void loadTeacherAvailability()
 })
@@ -255,7 +319,9 @@ onMounted(() => {
     </section>
 
     <footer class="schedule-action">
-      <RouterLink :class="{ 'is-disabled': !selectedSlotKey }" to="/payment">确认约课</RouterLink>
+      <button type="button" :disabled="!selectedSlotKey || isSubmitting" @click="confirmSchedule">
+        {{ isSubmitting ? '提交中...' : '确认约课' }}
+      </button>
     </footer>
   </main>
 </template>
@@ -434,7 +500,7 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.96);
   padding: 16px 16px calc(16px + var(--safe-bottom));
 
-  a {
+  button {
     display: flex;
     width: 100%;
     min-height: 56px;
@@ -446,7 +512,7 @@ onMounted(() => {
     font-size: 20px;
     font-weight: 600;
 
-    &.is-disabled {
+    &:disabled {
       opacity: 0.55;
       pointer-events: none;
     }

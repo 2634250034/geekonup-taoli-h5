@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { fetchTeacherPage } from '@/api/teacher'
 import TeacherCard from '@/components/TeacherCard.vue'
 import type { Teacher } from '@/types/teacher'
+import { getShareToken } from '@/utils/shareToken'
 
 const route = useRoute()
 const teachers = ref<Teacher[]>([])
@@ -13,12 +14,7 @@ const total = ref(0)
 const isLoading = ref(false)
 const errorMessage = ref('')
 
-const token = computed(() => {
-  const value = route.query.token
-  const tokenValue = Array.isArray(value) ? value[0] : value
-
-  return typeof tokenValue === 'string' ? tokenValue : ''
-})
+const token = computed(() => getShareToken(route.query.token))
 
 const hasMore = computed(() => teachers.value.length < total.value)
 

@@ -11,6 +11,7 @@ import SectionCard from '@/components/SectionCard.vue'
 import TeacherProfileCard from '@/components/TeacherProfileCard.vue'
 import { detailTeacher } from '@/data/teachers'
 import type { Teacher } from '@/types/teacher'
+import { getShareToken } from '@/utils/shareToken'
 
 const tabs = ['老师介绍', '学生评价', '可上课时间'] as const
 type DetailTab = (typeof tabs)[number]
@@ -25,6 +26,7 @@ const evaluation = ref<TeacherEvaluationPageResult | null>(null)
 const evaluationErrorMessage = ref('')
 
 const teacherId = computed(() => Number(route.params.id))
+const token = computed(() => getShareToken(route.query.token))
 const certificateItems = computed(() => teacher.value.certificateContent ?? [])
 const feedbackItems = computed(() =>
   (teacher.value.studentFeedback ?? [])
@@ -142,6 +144,7 @@ function goSchedule() {
     path: '/schedule',
     query: {
       teacherId: String(teacherId.value),
+      ...(token.value ? { token: token.value } : {}),
     },
   })
 }
