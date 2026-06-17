@@ -4,6 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import aiIcon from '@/assets/image/ai-icon.svg'
 import avatarImage from '@/assets/image/avatar.png'
 import starIcon from '@/assets/image/star.svg'
+import grayStarIcon from '@/assets/image/xx-star.svg'
+import { fetchTeacherEvaluation, type TeacherEvaluationPageResult } from '@/api/evaluation'
 import { fetchTeacherDetail } from '@/api/teacher'
 import SectionCard from '@/components/SectionCard.vue'
 import TeacherProfileCard from '@/components/TeacherProfileCard.vue'
@@ -19,54 +21,82 @@ const activeTab = ref<DetailTab>('老师介绍')
 const teacher = ref<Teacher>(detailTeacher)
 const isLoading = ref(false)
 const errorMessage = ref('')
+const evaluation = ref<TeacherEvaluationPageResult | null>(null)
+const evaluationErrorMessage = ref('')
 
 const teacherId = computed(() => Number(route.params.id))
 const certificateItems = computed(() => teacher.value.certificateContent ?? [])
-const feedbackItems = computed(() => teacher.value.studentFeedback ?? [])
-const overallRating = '4.7'
-const ratingStars = Array.from({ length: 5 }, (_, index) => index)
-const ratingMetrics = [
-  { label: '专业度', value: '4.6' },
-  { label: '教学风格', value: '4.2' },
-  { label: '互动表现', value: '4.1' },
-]
-const reviewSummary =
-  '综合用户的评价，该课程讲师的上课效果好，同学们对知识学得快，掌握得牢。不仅如此，还十分的耐心细致，上课过程中能够照顾理解慢的学生，综合调整课程的进度。'
-const studentReviews = [
-  {
-    id: 1,
-    name: '用户名',
-    score: '4.8',
-    time: '评价时间',
-    content:
-      '评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价评价',
-    anonymous: false,
-  },
-  {
-    id: 2,
-    name: '匿名同学',
-    score: '4.8',
-    time: '评价时间',
-    content: '评价评价评价评价',
-    anonymous: true,
-  },
-  {
-    id: 3,
-    name: '匿名同学',
-    score: '4.8',
-    time: '评价时间',
-    content: '评价评价评价评价',
-    anonymous: true,
-  },
-  {
-    id: 4,
-    name: '用户名',
-    score: '4.8',
-    time: '评价时间',
-    content: '评价评价评价评价',
-    anonymous: false,
-  },
-]
+const feedbackItems = computed(() =>
+  (teacher.value.studentFeedback ?? [])
+    .map((content, index) => {
+      const nextContent = content.trim()
+
+      return {
+        id: `${index}-${nextContent}`,
+        content: nextContent,
+        isImage: isImageResource(nextContent),
+      }
+    })
+    .filter((item) => item.content),
+)
+const reviewSummary = computed(() => evaluation.value?.aiEvaluation?.trim() ?? '')
+const reviewScore = computed(() => normalizeScore(evaluation.value?.totalScore))
+const reviewScoreText = computed(() => reviewScore.value.toFixed(1))
+const reviewStars = computed(() =>
+  Array.from({ length: 5 }, (_, index) => ({
+    index,
+    icon: index < Math.round(reviewScore.value) ? starIcon : grayStarIcon,
+  })),
+)
+const ratingMetrics = computed(() => [
+  { label: '专业度', value: formatScore(evaluation.value?.professionalismAvg) },
+  { label: '教学风格', value: formatScore(evaluation.value?.techingStyleAvg) },
+  { label: '互动表现', value: formatScore(evaluation.value?.interactionAvg) },
+])
+const studentReviews = computed(() =>
+  (evaluation.value?.page?.records ?? [])
+    .map((item, index) => ({
+      id: String(item.evaluationId ?? `${index}-${item.createdAt ?? ''}`),
+      name: item.isAnonymous ? '匿名同学' : item.studentName || '学生',
+      avatar: item.studentAvatar,
+      score: formatScore(item.totalScore),
+      content: item.content?.trim() ?? '',
+      createdAt: formatDateTime(item.createdAt),
+      isAnonymous: item.isAnonymous === true,
+    }))
+    .filter((item) => item.content),
+)
+const studentReviewCount = computed(
+  () => evaluation.value?.page?.total ?? studentReviews.value.length,
+)
+
+function isImageResource(value: string) {
+  return value.startsWith('data:image/') || /\.(png|jpe?g|webp|gif|svg)(\?.*)?$/i.test(value)
+}
+
+function normalizeScore(value?: number) {
+  if (typeof value !== 'number') return 0
+
+  return Math.max(0, Math.min(5, value))
+}
+
+function formatScore(value?: number) {
+  return normalizeScore(value).toFixed(1)
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return ''
+
+  const date = new Date(value.replace(/-/g, '/'))
+  if (Number.isNaN(date.getTime())) return value
+
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+
+  return `${month}-${day} ${hour}:${minute}`
+}
 
 async function loadTeacherDetail() {
   if (!Number.isFinite(teacherId.value)) {
@@ -76,9 +106,30 @@ async function loadTeacherDetail() {
 
   isLoading.value = true
   errorMessage.value = ''
+  evaluationErrorMessage.value = ''
 
   try {
-    teacher.value = await fetchTeacherDetail(teacherId.value)
+    const [teacherDetail, teacherEvaluation] = await Promise.allSettled([
+      fetchTeacherDetail(teacherId.value),
+      fetchTeacherEvaluation({
+        teacherId: teacherId.value,
+      }),
+    ])
+
+    if (teacherDetail.status === 'rejected') {
+      throw teacherDetail.reason
+    }
+
+    teacher.value = teacherDetail.value
+
+    if (teacherEvaluation.status === 'fulfilled') {
+      evaluation.value = teacherEvaluation.value
+    } else {
+      evaluationErrorMessage.value =
+        teacherEvaluation.reason instanceof Error
+          ? teacherEvaluation.reason.message
+          : '老师评价加载失败'
+    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '老师详情加载失败'
   } finally {
@@ -161,7 +212,10 @@ onMounted(() => {
 
         <SectionCard title="学员反馈">
           <div v-if="feedbackItems.length > 0" class="feedback-strip">
-            <img v-for="item in feedbackItems" :key="item" :src="item" alt="学员反馈" />
+            <template v-for="feedback in feedbackItems" :key="feedback.id">
+              <img v-if="feedback.isImage" :src="feedback.content" alt="学员反馈" />
+              <p v-else>{{ feedback.content }}</p>
+            </template>
           </div>
           <p v-else class="intro-text">暂无学员反馈</p>
         </SectionCard>
@@ -170,12 +224,12 @@ onMounted(() => {
       <template v-else-if="activeTab === '学生评价'">
         <section class="review-overview" aria-label="学生评价概览">
           <div class="review-overview__score">
-            <strong>{{ overallRating }}</strong>
+            <strong>{{ reviewScoreText }}</strong>
             <div class="review-overview__stars" aria-label="五星评价">
               <img
-                v-for="star in ratingStars"
-                :key="star"
-                :src="starIcon"
+                v-for="star in reviewStars"
+                :key="star.index"
+                :src="star.icon"
                 alt=""
                 aria-hidden="true"
               />
@@ -190,24 +244,29 @@ onMounted(() => {
           </dl>
         </section>
 
-        <section class="ai-summary-card" aria-labelledby="ai-summary-title">
+        <p v-if="evaluationErrorMessage" class="detail-state">{{ evaluationErrorMessage }}</p>
+
+        <section v-if="reviewSummary" class="ai-summary-card" aria-labelledby="ai-summary-title">
           <h2 id="ai-summary-title">
             <img :src="aiIcon" alt="" aria-hidden="true" />
-            <span style="">AI总结：</span>
+            <span>AI总结：</span>
           </h2>
           <p>{{ reviewSummary }}</p>
         </section>
 
         <section class="student-review-section" aria-labelledby="student-review-title">
-          <h2 id="student-review-title">学生评价（12）</h2>
+          <h2 id="student-review-title">学生评价（{{ studentReviewCount }}）</h2>
 
-          <div class="student-review-list">
+          <div v-if="studentReviews.length > 0" class="student-review-list">
             <article v-for="review in studentReviews" :key="review.id" class="student-review-item">
               <div
                 class="student-review-item__avatar"
-                :class="{ 'is-anonymous': review.anonymous }"
+                :class="{ 'is-anonymous': review.isAnonymous }"
               >
-                <img :src="review.anonymous ? aiIcon : avatarImage" :alt="review.name" />
+                <img
+                  :src="review.isAnonymous ? aiIcon : review.avatar || avatarImage"
+                  :alt="review.name"
+                />
               </div>
 
               <div class="student-review-item__body">
@@ -219,7 +278,7 @@ onMounted(() => {
                       {{ review.score }}
                     </p>
                   </div>
-                  <time>{{ review.time }}</time>
+                  <time v-if="review.createdAt">{{ review.createdAt }}</time>
                 </header>
 
                 <p class="student-review-item__content">{{ review.content }}</p>
@@ -227,10 +286,7 @@ onMounted(() => {
             </article>
           </div>
 
-          <button class="review-more" type="button">
-            更多
-            <span aria-hidden="true"></span>
-          </button>
+          <p v-else class="review-empty">暂无学生评价</p>
         </section>
       </template>
     </div>
@@ -372,12 +428,21 @@ onMounted(() => {
 
 .feedback-strip {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 
   img {
     width: 100%;
     border-radius: 8px;
+  }
+
+  p {
+    border-radius: 8px;
+    background: #f7f8fb;
+    color: var(--color-text-secondary);
+    font-size: 15px;
+    line-height: 26px;
+    padding: 12px;
+    overflow-wrap: anywhere;
   }
 }
 
@@ -473,8 +538,7 @@ onMounted(() => {
 .ai-summary-card {
   border-radius: 12px;
   padding: 18px 16px 20px;
-  background: linear-gradient(180deg, #fff0ff 0%, #fff 100%);
-  box-shadow: 0 10px 24px rgba(119, 83, 207, 0.08);
+  background: linear-gradient(180deg, #f7e6ff 0%, #fefbff 21.13%);
 
   h2 {
     display: flex;
@@ -483,13 +547,10 @@ onMounted(() => {
     font-size: 15px;
     font-weight: 600;
     line-height: 22px;
-    /* 🔴 以下是新增的字体渐变核心样式 */
     background: linear-gradient(112deg, #5990ff -4.87%, #ff59c2 89.35%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
-
-    /* 🔴 必须确保这个属性宽度跟着文字走，否则渐变会拉得太长导致粉色断层 */
     width: max-content;
   }
 
@@ -585,7 +646,7 @@ onMounted(() => {
   header p {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 3px;
     margin-top: 4px;
     color: #ff7e1c;
     font-size: 14px;
@@ -614,23 +675,20 @@ onMounted(() => {
   overflow-wrap: anywhere;
 }
 
-.review-more {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  min-height: 44px;
-  margin: 4px auto 0;
-  color: #697283;
-  font-size: 13px;
-  line-height: 20px;
+.student-review-item__image {
+  width: 100%;
+  margin-top: 14px;
+  border-radius: 8px;
+}
 
-  span {
-    width: 8px;
-    height: 8px;
-    border-right: 1px solid currentColor;
-    border-bottom: 1px solid currentColor;
-    transform: translateY(-2px) rotate(45deg);
-  }
+.review-empty {
+  border-radius: 12px;
+  margin-top: 18px;
+  background: #f7f8fb;
+  color: var(--color-text-secondary);
+  font-size: 15px;
+  line-height: 24px;
+  padding: 28px 16px;
+  text-align: center;
 }
 </style>

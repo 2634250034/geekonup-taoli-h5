@@ -1,18 +1,27 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import alipayIcon from '@/assets/image/alipay.svg'
 import avatarImage from '@/assets/image/avatar.png'
 import goldBadgeIcon from '@/assets/image/gold-badge-icon.svg'
 import wechatPayIcon from '@/assets/image/weChatPay.svg'
-import { detailTeacher, recommendedTeachers } from '@/data/teachers'
+import { fetchOrderPayInfo, type OrderPayInfo } from '@/api/payment'
 
 type PaymentMethod = 'alipay' | 'wechat'
 
 const router = useRouter()
-const teacher = computed(() => recommendedTeachers[0] ?? detailTeacher)
+const route = useRoute()
 const selectedMethod = ref<PaymentMethod>('alipay')
 const isPaying = ref(false)
+const isLoading = ref(false)
+const errorMessage = ref('')
+const orderInfo = ref<OrderPayInfo | null>(null)
+
+const orderCode = computed(() => {
+  const value = route.query.orderCode
+
+  return Array.isArray(value) ? String(value[0] ?? '') : String(value ?? '')
+})
 
 const paymentMethods: Array<{
   id: PaymentMethod
@@ -31,20 +40,101 @@ const paymentMethods: Array<{
   },
 ]
 
-const paymentAmount = '9.9'
-const bookingInfo = [
-  {
-    label: '预约时间',
-    value: '03-27 周三 19:00-19:30',
-  },
-  {
-    label: '课程科目',
-    value: '日常口语',
-  },
-]
+const paymentAmount = computed(() => formatAmount(orderInfo.value?.orderAmount))
+const orderStatusText = computed(() => formatOrderStatus(orderInfo.value?.orderStatus))
+const expireText = computed(() => {
+  if (orderInfo.value?.orderStatus !== 'WAIT_PAY') return orderStatusText.value
+  if (!orderInfo.value.expireTime) return '待支付'
+
+  return `待支付，过期时间 ${formatDateTime(orderInfo.value.expireTime)}`
+})
+const teacherName = computed(() => orderInfo.value?.teacherName || '预约讲师')
+const teacherCode = computed(() => orderInfo.value?.teacherCode || '桃李老师')
+const cardTitle = computed(() => (orderInfo.value?.orderType === 'FORMAL' ? '课程信息' : '预约讲师'))
+const bookingInfo = computed(() =>
+  [
+    {
+      label: '课程科目',
+      value: orderInfo.value?.subjectName,
+    },
+    {
+      label: orderInfo.value?.orderType === 'FORMAL' ? '课时节数' : '预约时间',
+      value:
+        orderInfo.value?.orderType === 'FORMAL'
+          ? formatClassCount(orderInfo.value?.classCount)
+          : formatDateTime(orderInfo.value?.appointTime),
+    },
+    {
+      label: '订单编号',
+      value: orderInfo.value?.orderCode,
+    },
+    {
+      label: '学生姓名',
+      value: orderInfo.value?.studentName,
+    },
+  ].filter((item) => item.value),
+)
+
+async function loadOrderPayInfo() {
+  if (!orderCode.value) {
+    errorMessage.value = '缺少订单号'
+    return
+  }
+
+  isLoading.value = true
+  errorMessage.value = ''
+
+  try {
+    orderInfo.value = await fetchOrderPayInfo(orderCode.value)
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '订单信息加载失败'
+  } finally {
+    isLoading.value = false
+  }
+}
+
+function formatAmount(value?: number) {
+  if (typeof value !== 'number') return '--'
+
+  return value.toFixed(2).replace(/\.00$/, '')
+}
+
+function formatClassCount(value?: number) {
+  if (typeof value !== 'number') return ''
+
+  return `${value}节`
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return ''
+
+  const date = new Date(value.replace(/-/g, '/'))
+
+  if (Number.isNaN(date.getTime())) return value
+
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+
+  return `${month}-${day} ${hour}:${minute}`
+}
+
+function formatOrderStatus(status?: OrderPayInfo['orderStatus']) {
+  const statusMap: Record<NonNullable<OrderPayInfo['orderStatus']>, string> = {
+    WAIT_PAY: '待支付',
+    PAID: '已支付',
+    CANCEL: '已取消',
+    REFUND: '已退款',
+    IN_EFFECT: '生效中',
+    COMPLETED: '已完成',
+  }
+
+  return status ? statusMap[status] : '待支付'
+}
 
 function handlePay() {
-  if (isPaying.value) {
+  if (isPaying.value || isLoading.value || errorMessage.value || !orderInfo.value) {
     return
   }
 
@@ -54,6 +144,10 @@ function handlePay() {
     router.push('/payment/result')
   }, 1000)
 }
+
+onMounted(() => {
+  void loadOrderPayInfo()
+})
 </script>
 
 <template>
@@ -61,31 +155,40 @@ function handlePay() {
     <section class="payment-amount" aria-label="支付金额">
       <p>支付金额</p>
       <strong><span>¥</span>{{ paymentAmount }}</strong>
-      <small>待支付， 剩余 14:59</small>
+      <small>{{ expireText }}</small>
     </section>
 
-    <section class="payment-card">
-      <h1>预约讲师</h1>
+    <p v-if="isLoading" class="payment-state">加载中...</p>
+    <section v-else-if="errorMessage" class="payment-state payment-state--error">
+      <p>{{ errorMessage }}</p>
+      <button type="button" @click="loadOrderPayInfo">重试</button>
+    </section>
+
+    <section v-else class="payment-card">
+      <h1>{{ cardTitle }}</h1>
 
       <article class="teacher-summary">
-        <img class="teacher-summary__avatar" :src="avatarImage" :alt="teacher.name" />
+        <img class="teacher-summary__avatar" :src="avatarImage" :alt="teacherName" />
 
         <div class="teacher-summary__main">
           <div class="teacher-summary__title">
-            <h2>{{ teacher.name }}</h2>
-            <img :src="goldBadgeIcon" :alt="teacher.title" />
+            <h2>{{ teacherName }}</h2>
+            <img :src="goldBadgeIcon" alt="讲师" />
           </div>
 
           <p class="teacher-summary__meta">
-            {{ teacher.school }}<span>·</span>{{ teacher.degree }}<span>·</span
-            >{{ teacher.nickname }}
+            {{ teacherCode }}
           </p>
         </div>
 
-        <p class="teacher-summary__intro">{{ teacher.listIntro }}</p>
+        <p class="teacher-summary__intro">
+          {{ orderInfo?.subjectName || '课程信息加载后展示' }}
+        </p>
 
         <div class="teacher-summary__tags">
-          <span v-for="tag in teacher.tags" :key="tag">{{ tag }}</span>
+          <span>{{ orderStatusText }}</span>
+          <span v-if="orderInfo?.orderType === 'FORMAL'">课包订单</span>
+          <span v-else>试听订单</span>
         </div>
       </article>
 
@@ -99,7 +202,7 @@ function handlePay() {
       </dl>
     </section>
 
-    <section class="payment-card payment-method-card">
+    <section v-if="!isLoading && !errorMessage" class="payment-card payment-method-card">
       <h1>支付方式</h1>
 
       <div class="payment-methods">
@@ -133,7 +236,13 @@ function handlePay() {
         <p>15分钟内未支付，订单将自动取消</p>
       </div>
 
-      <button type="button" :disabled="isPaying" @click="handlePay">立即支付</button>
+      <button
+        type="button"
+        :disabled="isPaying || isLoading || !!errorMessage || !orderInfo"
+        @click="handlePay"
+      >
+        立即支付
+      </button>
     </footer>
 
     <Teleport to="body">
@@ -201,6 +310,32 @@ function handlePay() {
     font-size: 18px;
     font-weight: 600;
     line-height: 26px;
+  }
+}
+
+.payment-state {
+  border-radius: 12px;
+  margin-top: 28px;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: 15px;
+  line-height: 24px;
+  padding: 28px 16px;
+  text-align: center;
+}
+
+.payment-state--error {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+
+  button {
+    min-width: 84px;
+    min-height: 36px;
+    border-radius: 8px;
+    background: var(--color-primary);
+    color: #fff;
+    font-size: 14px;
   }
 }
 
