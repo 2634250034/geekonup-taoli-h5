@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import fallbackAvatar from '@/assets/image/avatar.png'
 import type { Teacher } from '@/types/teacher'
 
 defineProps<{
@@ -13,7 +14,12 @@ defineProps<{
       :to="`/teachers/${teacher.id}`"
       :aria-label="`查看${teacher.name}详情`"
     >
-      <img class="teacher-card__avatar" src="@/assets/image/avatar.png" :alt="teacher.name" />
+      <img
+        class="teacher-card__avatar"
+        :src="teacher.avatar || fallbackAvatar"
+        :alt="teacher.name"
+        @error="($event.target as HTMLImageElement).src = fallbackAvatar"
+      />
 
       <div class="teacher-card__content">
         <div class="teacher-card__title-row">

@@ -67,6 +67,7 @@ Avoid creating broad framework-like layers unless the project actually needs the
 - Validate required query parameters before making requests.
 - Use typed async API functions and `async/await`.
 - Keep request parameter names and response types clear.
+- Treat backend API responses with `code === 200` as successful responses. Do not assume `code === 0` means success in this project.
 - Handle loading, empty, error, and retry states.
 - Render API data defensively because H5 share links may be stale or incomplete.
 - Do not hardcode user identifiers, payment identifiers, tokens, or environment-specific API hosts in components.

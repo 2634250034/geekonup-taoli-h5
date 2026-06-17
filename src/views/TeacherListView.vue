@@ -1,18 +1,86 @@
 <script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { fetchTeacherPage } from '@/api/teacher'
 import TeacherCard from '@/components/TeacherCard.vue'
-import { recommendedTeachers } from '@/data/teachers'
+import type { Teacher } from '@/types/teacher'
+
+const route = useRoute()
+const teachers = ref<Teacher[]>([])
+const currentPage = ref(1)
+const pageSize = 10
+const total = ref(0)
+const isLoading = ref(false)
+const errorMessage = ref('')
+
+const token = computed(() => {
+  const value = route.query.token
+  const tokenValue = Array.isArray(value) ? value[0] : value
+
+  return typeof tokenValue === 'string' ? tokenValue : ''
+})
+
+const hasMore = computed(() => teachers.value.length < total.value)
+
+async function loadTeachers(page = 1) {
+  if (!token.value) {
+    errorMessage.value = '分享链接缺少 token 参数'
+    return
+  }
+
+  if (isLoading.value) return
+
+  isLoading.value = true
+  errorMessage.value = ''
+
+  try {
+    const result = await fetchTeacherPage({
+      token: token.value,
+      current: page,
+      size: pageSize,
+    })
+
+    teachers.value = page === 1 ? result.records : [...teachers.value, ...result.records]
+    currentPage.value = result.current
+    total.value = result.total
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '老师列表加载失败'
+  } finally {
+    isLoading.value = false
+  }
+}
+
+function loadMore() {
+  if (!hasMore.value) return
+
+  void loadTeachers(currentPage.value + 1)
+}
+
+onMounted(() => {
+  void loadTeachers()
+})
 </script>
 
 <template>
   <main class="page teacher-list-page">
     <img src="@/assets/image/hero-card.png" alt="推荐老师" />
 
-    <section class="teacher-list" aria-label="老师列表">
-      <TeacherCard v-for="teacher in recommendedTeachers" :key="teacher.id" :teacher="teacher" />
+    <section v-if="teachers.length > 0" class="teacher-list" aria-label="老师列表">
+      <TeacherCard v-for="teacher in teachers" :key="teacher.id" :teacher="teacher" />
     </section>
 
-    <button class="load-more" type="button">
-      点击查看更多老师
+    <p v-else class="list-state">{{ isLoading ? '加载中...' : errorMessage || '暂无推荐老师' }}</p>
+
+    <p v-if="errorMessage && teachers.length > 0" class="list-state">{{ errorMessage }}</p>
+
+    <button
+      v-if="hasMore || isLoading"
+      class="load-more"
+      type="button"
+      :disabled="isLoading"
+      @click="loadMore"
+    >
+      {{ isLoading ? '加载中...' : '点击查看更多老师' }}
       <span aria-hidden="true"></span>
     </button>
   </main>
@@ -86,6 +154,14 @@ import { recommendedTeachers } from '@/data/teachers'
   margin-top: 18px;
 }
 
+.list-state {
+  margin-top: 24px;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 22px;
+  text-align: center;
+}
+
 .load-more {
   display: inline-flex;
   min-height: 44px;
@@ -96,6 +172,10 @@ import { recommendedTeachers } from '@/data/teachers'
   margin-top: 22px;
   color: var(--color-text-secondary);
   font-size: 14px;
+
+  &:disabled {
+    opacity: 0.65;
+  }
 
   span {
     width: 8px;
